@@ -1,0 +1,15 @@
+# b1 is declared in both partitions, which is rejected: vertex ids must be
+# unique graph-wide because the output format identifies vertices by id alone.
+# Used to show that a bad graph is an error value, not a process exit.
+@PartitionA
+a1, b1 ;
+@End
+@PartitionB
+b1, b2 ;
+@End
+@PreferenceListsA
+a1 : b1 ;
+@End
+@PreferenceListsB
+b1 : a1 ;
+@End

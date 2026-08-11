@@ -1,0 +1,18 @@
+# Smallest useful instance: 3 vs 3, one-to-one, no quotas.
+# Every vertex defaults to lower quota 0, upper quota 1.
+@PartitionA
+a1, a2, a3 ;
+@End
+@PartitionB
+b1, b2, b3 ;
+@End
+@PreferenceListsA
+a1 : b1, b2 ;
+a2 : b2, b3 ;
+a3 : b1 ;
+@End
+@PreferenceListsB
+b1 : a1, a3 ;
+b2 : a1, a2 ;
+b3 : a2 ;
+@End

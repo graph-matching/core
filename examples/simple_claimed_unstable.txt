@@ -1,0 +1,6 @@
+# A valid but UNSTABLE matching for simple.txt, for the -e checker.
+# a1 and b1 both prefer each other over their assigned partners, so
+# a1 -- b1 is a blocking pair.
+a1,b2,2
+a2,b3,2
+a3,b1,1

@@ -1,0 +1,19 @@
+# Hospital/Residents: 4 residents, 2 hospitals with upper quotas.
+# h1(2)   -> upper quota 2, lower quota 0
+# h2(1,2) -> lower quota 1, upper quota 2
+@PartitionA
+r1, r2, r3, r4 ;
+@End
+@PartitionB
+h1(2), h2(1,2) ;
+@End
+@PreferenceListsA
+r1 : h1, h2 ;
+r2 : h1, h2 ;
+r3 : h2, h1 ;
+r4 : h1 ;
+@End
+@PreferenceListsB
+h1 : r1, r2, r3, r4 ;
+h2 : r1, r2, r3 ;
+@End

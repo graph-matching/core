@@ -13,6 +13,13 @@
 #include <cctype>
 #include <algorithm>
 #include <limits>
+#include <stdexcept>
+
+// Thrown instead of calling exit(): the parser also runs inside the shared
+// library, where a malformed graph must not take the host process down.
+struct GraphParseError : std::runtime_error {
+    GraphParseError() : std::runtime_error("failed to parse bipartite graph") {}
+};
 
 enum Token {
     TOK_AT = 0,
@@ -172,7 +179,7 @@ private:
                       << ": Expected token '" << token_to_string(expected) 
                       << "', but got '" << token_to_string(curtok) 
                       << "' (lexeme: '" << lexer->get_lexeme() << "')\n";
-            exit(1);
+            throw GraphParseError();
         }
         consume();
     }
@@ -325,7 +332,7 @@ private:
             read_partition(partitionB, lookupB, lookupA);
         } else {
             std::cerr << "Line " << lexer->line_number() << ": Wrong syntax for partition\n";
-            exit(1);
+            throw GraphParseError();
         }
     }
 
@@ -339,7 +346,7 @@ private:
             read_preference_lists(lookupB, lookupA);
         } else {
             std::cerr << "Line " << lexer->line_number() << ": Wrong syntax for preference list\n";
-            exit(1);
+            throw GraphParseError();
         }
     }
 
@@ -360,7 +367,7 @@ private:
             }
         }
         if (!flag) {
-            exit(1);
+            throw GraphParseError();
         }
     }
 
@@ -387,7 +394,7 @@ public:
             handle_partition(partitionA, partitionB, lookupA, lookupB);
         } else {
             std::cerr << "Line " << lexer->line_number() << ": duplicate partition listing\n";
-            exit(1);
+            throw GraphParseError();
         }
 
         for (auto& v : partitionA) graph->addVertexA(std::move(v));
@@ -402,7 +409,7 @@ public:
             handle_preference_lists(lookupA, lookupB);
         } else {
             std::cerr << "Line " << lexer->line_number() << ": duplicate preference listing\n";
-            exit(1);
+            throw GraphParseError();
         }
 
         graph->finalize();

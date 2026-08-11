@@ -4,6 +4,10 @@ A small, fast, header-only C++17 solver for stable and popular matchings on the
 bipartite Hospital/Residents problem. It computes three matchings, verifies them
 by default, and checks lower-quota feasibility.
 
+The engine builds as a shared library (`build/libgraphmatch.so`) exposing a C
+ABI; `graph_matcher.py` is an `argparse` CLI over it via `ctypes`, and the same
+module can be imported directly from a long-running service (FastAPI, etc.).
+
 ## Features
 
 - **Stable matching** (`-s`)
@@ -28,28 +32,64 @@ use [uv](https://docs.astral.sh/uv/) (install with `curl -LsSf https://astral.sh
 make
 ```
 
-This produces `build/graph_matcher` (the solver) and `build/generator` (a random
-instance generator).
+This produces `build/libgraphmatch.so` (the solver engine) and
+`build/generator` (a random instance generator).
 
 ## Usage
 
 ```
-./build/graph_matcher [options]
+./graph_matcher.py [options]        # or: uv run graph_matcher.py [options]
 
-  -A                Partition A proposes (default)
-  -B                Partition B proposes
-  -s                Stable matching
-  -p                Max-cardinality popular matching
-  -m                Popular among max-cardinality matchings
-  -i <input_file>   Input graph (stdin if omitted)
-  -o <output_file>  Output matching (stdout if omitted)
-  -g <sig_file>     Write a signature (rank distribution) of the matching
-  -n                Do NOT run the verifier (verification is on by default)
-  -e <claimed_file> Verify a claimed matching file (requires -s or -p)
+  -A                       Partition A proposes (default)
+  -B                       Partition B proposes
+  -s, --stable             Stable matching
+  -p, --popular            Max-cardinality popular matching
+  -m, --max-card           Popular among max-cardinality matchings
+  -i, --input FILE         Input graph (stdin if omitted)
+  -o, --output FILE        Output matching (stdout if omitted)
+  -g, --signature FILE     Write a signature (rank distribution) of the matching
+  -n, --no-verify          Do NOT run the verifier (verification is on by default)
+  -e, --verify-claimed FILE  Verify a claimed matching file (requires -s or -p)
+  -h, --help               Show the full option matrix
 ```
 
 Exit codes: `0` = success; `1` = usage/parse/file error **or** verification
 failed (unstable / no certificate / lower quota violated).
+
+The CLI locates the shared library at `build/` relative to `graph_matcher.py`;
+set `GRAPH_MATCHING_LIB` to point at it explicitly.
+
+## Library use (FastAPI and friends)
+
+`graph_matcher` is text in / text out, holds no state between calls, and never
+exits the process on a malformed graph -- parse errors come back as
+`status == 1` with the diagnostics in `err`.
+
+```python
+from graph_matcher import solve, verify_matching
+
+result = solve(graph_text, algorithm="stable", a_proposing=True,
+               verify=True, signature=False)
+result.ok         # status == 0
+result.parsed     # False if the graph itself failed to parse
+result.matching   # "a_id,b_id,rank" per line
+result.signature  # rank distribution, when signature=True
+result.out        # engine stdout (checker output)
+result.err        # engine stderr (parse / verifier diagnostics)
+
+verify_matching(graph_text, claimed_text, algorithm="stable")
+```
+
+`algorithm` is `"stable"`, `"popular"`, or `"max-card"`. Calls are serialised by
+a lock inside the library, so run them in a threadpool
+(`fastapi.concurrency.run_in_threadpool`) rather than on the event loop.
+
+A runnable service and sample instances live in [`examples/`](examples/README.md):
+
+```
+uv run graph_matcher.py -s -i examples/simple.txt   # CLI
+uv run examples/fastapi_app.py                      # HTTP service on :8000
+```
 
 ### Output format
 
@@ -117,7 +157,7 @@ CSV.
 ## Tests
 
 ```
-make            # build the C++ binaries
+make            # build the shared library and generator
 uv run pytest test_solver.py -q
 ```
 

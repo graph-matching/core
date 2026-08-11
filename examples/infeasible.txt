@@ -1,0 +1,16 @@
+# b2 has lower quota 1 but a1 is the only candidate and prefers b1, so the
+# stable matching leaves b2 below its floor. The solver still prints the
+# matching, reports the violation on stderr, and exits 1.
+@PartitionA
+a1 ;
+@End
+@PartitionB
+b1, b2(1,1) ;
+@End
+@PreferenceListsA
+a1 : b1, b2 ;
+@End
+@PreferenceListsB
+b1 : a1 ;
+b2 : a1 ;
+@End

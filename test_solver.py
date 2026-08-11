@@ -1,9 +1,11 @@
 import subprocess
 import os
+import sys
 import tempfile
 import pytest
 
-BINARY_PATH = "./build/graph_matcher"
+# The solver is a Python CLI over build/libgraphmatch.so.
+BINARY_PATH = [sys.executable, os.path.join(os.path.dirname(__file__), "graph_matcher.py")]
 GENERATOR_PATH = "./build/generator"
 
 def generate_graph(num_a, num_b, edge_prob, max_quota, lq_max=0):
@@ -24,7 +26,7 @@ def test_matching_verifier_runs_by_default_A_proposing(alg_flag):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as f:
             out_path = f.name
 
-        cmd = [BINARY_PATH, alg_flag, "-A", "-i", graph_path, "-o", out_path]
+        cmd = BINARY_PATH + [alg_flag, "-A", "-i", graph_path, "-o", out_path]
         res = subprocess.run(cmd, capture_output=True, text=True)
 
         assert res.returncode == 0
@@ -51,7 +53,7 @@ def test_stable_matching_checker_B_proposing():
         with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as f:
             out_path = f.name
 
-        cmd = [BINARY_PATH, "-s", "-B", "-i", graph_path, "-o", out_path]
+        cmd = BINARY_PATH + ["-s", "-B", "-i", graph_path, "-o", out_path]
         res = subprocess.run(cmd, capture_output=True, text=True)
 
         assert res.returncode == 0
@@ -65,7 +67,7 @@ def test_stable_matching_checker_B_proposing():
 def test_no_verify_flag_disables_verification():
     graph_path = generate_graph(10, 8, 0.5, 3)
     try:
-        cmd = [BINARY_PATH, "-s", "-n", "-i", graph_path]
+        cmd = BINARY_PATH + ["-s", "-n", "-i", graph_path]
         res = subprocess.run(cmd, capture_output=True, text=True)
         assert res.returncode == 0
         assert "Matching is Stable" not in res.stderr
@@ -82,9 +84,9 @@ def test_claimed_matching_verification(alg_flag):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as f:
             out_path = f.name
 
-        subprocess.run([BINARY_PATH, alg_flag, "-i", graph_path, "-o", out_path], check=True)
+        subprocess.run(BINARY_PATH + [alg_flag, "-i", graph_path, "-o", out_path], check=True)
 
-        cmd = [BINARY_PATH, alg_flag, "-i", graph_path, "-e", out_path]
+        cmd = BINARY_PATH + [alg_flag, "-i", graph_path, "-e", out_path]
         res = subprocess.run(cmd, capture_output=True, text=True)
 
         assert res.returncode == 0
@@ -130,7 +132,7 @@ def test_lower_quota_satisfied(alg_flag):
         f.write(LOWER_QUOTA_SATISFIED_GRAPH)
         graph_path = f.name
     try:
-        res = subprocess.run([BINARY_PATH, alg_flag, "-i", graph_path], capture_output=True, text=True)
+        res = subprocess.run(BINARY_PATH + [alg_flag, "-i", graph_path], capture_output=True, text=True)
         assert res.returncode == 0
         assert "Lower quotas satisfied" in res.stderr
         assert "a1,b1,1" in res.stdout
@@ -146,7 +148,7 @@ def test_lower_quota_violation_rejected(alg_flag):
         f.write(LOWER_QUOTA_VIOLATED_GRAPH)
         graph_path = f.name
     try:
-        res = subprocess.run([BINARY_PATH, alg_flag, "-i", graph_path], capture_output=True, text=True)
+        res = subprocess.run(BINARY_PATH + [alg_flag, "-i", graph_path], capture_output=True, text=True)
         assert res.returncode == 1
         assert "Lower quota violated: b2 matched 0, floor 1" in res.stderr
         assert "infeasible" in res.stderr
@@ -160,7 +162,7 @@ def test_lower_quota_violation_suppressed_by_no_verify():
         f.write(LOWER_QUOTA_VIOLATED_GRAPH)
         graph_path = f.name
     try:
-        res = subprocess.run([BINARY_PATH, "-s", "-n", "-i", graph_path], capture_output=True, text=True)
+        res = subprocess.run(BINARY_PATH + ["-s", "-n", "-i", graph_path], capture_output=True, text=True)
         assert res.returncode == 0
         assert "Lower quota" not in res.stderr
         assert "a1,b1,1" in res.stdout
@@ -172,7 +174,7 @@ def test_generator_lower_quota_mode_runs():
     # lq_max > 0 emits (l,u) quotas; the lower-quota check must engage either way.
     graph_path = generate_graph(8, 6, 0.5, 3, lq_max=2)
     try:
-        res = subprocess.run([BINARY_PATH, "-s", "-i", graph_path], capture_output=True, text=True)
+        res = subprocess.run(BINARY_PATH + ["-s", "-i", graph_path], capture_output=True, text=True)
         assert res.returncode in (0, 1)
         assert "Lower quot" in res.stderr
     finally:
@@ -200,7 +202,7 @@ def test_no_duplicate_edges_with_proposing_side_quotas(alg_flag):
         f.write(QUOTA_BOTH_SIDES_GRAPH)
         graph_path = f.name
     try:
-        res = subprocess.run([BINARY_PATH, alg_flag, "-n", "-i", graph_path], capture_output=True, text=True)
+        res = subprocess.run(BINARY_PATH + [alg_flag, "-n", "-i", graph_path], capture_output=True, text=True)
         assert res.returncode == 0
         edges = [line for line in res.stdout.splitlines() if line.strip()]
         assert edges == ["a1,b1,1"]
@@ -229,7 +231,7 @@ def test_many_to_many_stability_checker():
         f.write(MANY_TO_MANY_GRAPH)
         graph_path = f.name
     try:
-        res = subprocess.run([BINARY_PATH, "-s", "-i", graph_path], capture_output=True, text=True)
+        res = subprocess.run(BINARY_PATH + ["-s", "-i", graph_path], capture_output=True, text=True)
         assert res.returncode == 0
         assert "Matching is Stable" in res.stderr
     finally:
@@ -259,7 +261,7 @@ b2: a1;
         f.write("a1,b1,1\n")
         claim_path = f.name
     try:
-        res = subprocess.run([BINARY_PATH, "-s", "-i", graph_path, "-e", claim_path], capture_output=True, text=True)
+        res = subprocess.run(BINARY_PATH + ["-s", "-i", graph_path, "-e", claim_path], capture_output=True, text=True)
         assert res.returncode == 1
         assert "Matching is not stable" in res.stdout
         assert "a1 -- b2 is a blocking pair" in res.stdout
@@ -289,7 +291,7 @@ b2: x;
         f.write(graph)
         graph_path = f.name
     try:
-        res = subprocess.run([BINARY_PATH, "-s", "-i", graph_path], capture_output=True, text=True)
+        res = subprocess.run(BINARY_PATH + ["-s", "-i", graph_path], capture_output=True, text=True)
         assert res.returncode == 1
         assert "already declared in the other partition" in res.stderr
     finally:
@@ -317,7 +319,7 @@ b2: a1;
         f.write(graph)
         graph_path = f.name
     try:
-        res = subprocess.run([BINARY_PATH, "-m", "-B", "-i", graph_path], capture_output=True, text=True)
+        res = subprocess.run(BINARY_PATH + ["-m", "-B", "-i", graph_path], capture_output=True, text=True)
         assert res.returncode == 0
         assert "a1,b2,1" in res.stdout
         assert "Lower quotas satisfied" in res.stderr
@@ -333,7 +335,7 @@ def test_claimed_matching_rejects_duplicate_pair():
         f.write("a1,b1,1\na1,b1,1\n")
         claim_path = f.name
     try:
-        res = subprocess.run([BINARY_PATH, "-s", "-i", graph_path, "-e", claim_path], capture_output=True, text=True)
+        res = subprocess.run(BINARY_PATH + ["-s", "-i", graph_path, "-e", claim_path], capture_output=True, text=True)
         assert res.returncode == 1
         assert "is listed more than once" in res.stderr
     finally:
@@ -363,7 +365,7 @@ h1: r1;
         f.write(graph)
         graph_path = f.name
     try:
-        res = subprocess.run([BINARY_PATH, "-s", "-i", graph_path], capture_output=True, text=True)
+        res = subprocess.run(BINARY_PATH + ["-s", "-i", graph_path], capture_output=True, text=True)
         assert res.returncode == 1
         assert err_msg in res.stderr
     finally:
@@ -378,7 +380,7 @@ def test_claimed_matching_out_of_range_rank():
         f.write("a1,b1,99999999999999999999\n")
         claim_path = f.name
     try:
-        res = subprocess.run([BINARY_PATH, "-s", "-i", graph_path, "-e", claim_path], capture_output=True, text=True)
+        res = subprocess.run(BINARY_PATH + ["-s", "-i", graph_path, "-e", claim_path], capture_output=True, text=True)
         assert res.returncode == 1
         assert "out-of-range rank" in res.stderr
     finally:
@@ -409,7 +411,7 @@ b2: a1;
     with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as f:
         sig_path = f.name
     try:
-        res = subprocess.run([BINARY_PATH, "-s", "-i", graph_path, "-o", os.devnull, "-g", sig_path], capture_output=True, text=True)
+        res = subprocess.run(BINARY_PATH + ["-s", "-i", graph_path, "-o", os.devnull, "-g", sig_path], capture_output=True, text=True)
         assert res.returncode == 0
         with open(sig_path) as f:
             assert "Unassigned 1" in f.read()
@@ -428,7 +430,7 @@ def test_sparse_graph_memory_is_linear_in_edges():
         def limit_mem():
             cap = 512 * 1024 * 1024
             resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
-        res = subprocess.run([BINARY_PATH, "-s", "-n", "-i", graph_path, "-o", os.devnull],
+        res = subprocess.run(BINARY_PATH + ["-s", "-n", "-i", graph_path, "-o", os.devnull],
                              capture_output=True, text=True, preexec_fn=limit_mem)
         assert res.returncode == 0
     finally:
@@ -448,14 +450,14 @@ def test_generator_rejects_invalid_args():
         assert err_msg in res.stderr
 
 def test_missing_arg_handling():
-    res = subprocess.run([BINARY_PATH, "-i"], capture_output=True, text=True)
+    res = subprocess.run(BINARY_PATH + ["-i"], capture_output=True, text=True)
     assert res.returncode == 1
     assert "Option -i requires an argument" in res.stderr
 
 def test_missing_alg_flag():
     graph_path = generate_graph(5, 5, 0.5, 1)
     try:
-        res = subprocess.run([BINARY_PATH, "-i", graph_path], capture_output=True, text=True)
+        res = subprocess.run(BINARY_PATH + ["-i", graph_path], capture_output=True, text=True)
         assert res.returncode == 1
         assert "Must specify algorithm flag" in res.stderr
     finally:
@@ -469,7 +471,7 @@ def test_claimed_matching_verification_invalid():
             out_path = f.name
         with open(out_path, "w") as f:
             f.write("invalid_node1,invalid_node2,1\n")
-        cmd = [BINARY_PATH, "-s", "-i", graph_path, "-e", out_path]
+        cmd = BINARY_PATH + ["-s", "-i", graph_path, "-e", out_path]
         res = subprocess.run(cmd, capture_output=True, text=True)
         assert res.returncode == 1
         assert "Verification failed: matching is invalid." in res.stderr
@@ -539,7 +541,7 @@ h2: r2;
                     f.write(file_content)
                     claim_path = f.name
             try:
-                cmd = [BINARY_PATH, "-s", "-i", gp, "-e", claim_path]
+                cmd = BINARY_PATH + ["-s", "-i", gp, "-e", claim_path]
                 res = subprocess.run(cmd, capture_output=True, text=True)
                 assert res.returncode == expected_code
                 assert err_msg in res.stderr or err_msg in res.stdout
@@ -602,7 +604,7 @@ def test_parser_errors():
             f.write(graph_content)
             graph_path = f.name
         try:
-            cmd = [BINARY_PATH, "-s", "-i", graph_path]
+            cmd = BINARY_PATH + ["-s", "-i", graph_path]
             res = subprocess.run(cmd, capture_output=True, text=True)
             # Parse errors must be detectable from the exit code
             assert res.returncode == 1
@@ -619,7 +621,7 @@ def test_additional_command_flags():
         with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as f:
             valid_match_path = f.name
 
-        cmd = [BINARY_PATH, "-s", "-i", graph_path, "-o", valid_match_path, "-g", sig_path]
+        cmd = BINARY_PATH + ["-s", "-i", graph_path, "-o", valid_match_path, "-g", sig_path]
         res = subprocess.run(cmd, capture_output=True, text=True)
         assert res.returncode == 0
         assert os.path.exists(sig_path)
@@ -627,22 +629,22 @@ def test_additional_command_flags():
             sig_content = f.read()
         assert "Signature" in sig_content
 
-        cmd = [BINARY_PATH, "-z"]
+        cmd = BINARY_PATH + ["-z"]
         res = subprocess.run(cmd, capture_output=True, text=True)
         assert res.returncode == 1
         assert "Unknown option" in res.stderr
 
-        cmd = [BINARY_PATH, "-s", "-i", "non_existent_graph.txt"]
+        cmd = BINARY_PATH + ["-s", "-i", "non_existent_graph.txt"]
         res = subprocess.run(cmd, capture_output=True, text=True)
         assert res.returncode == 1
         assert "Could not open input file" in res.stderr
 
-        cmd = [BINARY_PATH, "-s", "-i", graph_path, "-o", "/non_existent_dir/out.txt"]
+        cmd = BINARY_PATH + ["-s", "-i", graph_path, "-o", "/non_existent_dir/out.txt"]
         res = subprocess.run(cmd, capture_output=True, text=True)
         assert res.returncode == 1
         assert "Could not open output file" in res.stderr
 
-        cmd = [BINARY_PATH, "-i", graph_path, "-e", valid_match_path]
+        cmd = BINARY_PATH + ["-i", graph_path, "-e", valid_match_path]
         res = subprocess.run(cmd, capture_output=True, text=True)
         assert res.returncode == 1
         assert "Please specify -s (stable) or -p (popular) flag for verification" in res.stderr

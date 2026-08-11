@@ -20,7 +20,9 @@ import argparse
 import csv
 from typing import List, Tuple
 
-BINARY_PATH = "./build/graph_matcher"
+# The solver is a Python CLI over build/libgraphmatch.so.
+BINARY_PATH = [sys.executable, os.path.join(os.path.dirname(__file__), "graph_matcher.py")]
+LIB_PATH = "./build/libgraphmatch.so"
 GENERATOR_PATH = "./build/generator"
 
 DEFAULT_SIZES = [
@@ -118,17 +120,17 @@ def profile_combination(
 
             # Produce the matching to verify against (not timed).
             subprocess.run(
-                [BINARY_PATH, alg_flag, proposer_flag, "-n", "-i", graph_path, "-o", matching_path],
+                BINARY_PATH + [alg_flag, proposer_flag, "-n", "-i", graph_path, "-o", matching_path],
                 check=True,
                 capture_output=True
             )
 
-            cmd = [BINARY_PATH, alg_flag, proposer_flag, "-i", graph_path, "-e", matching_path]
+            cmd = BINARY_PATH + [alg_flag, proposer_flag, "-i", graph_path, "-e", matching_path]
 
         elif verify_mode == "internal":
-            cmd = [BINARY_PATH, alg_flag, proposer_flag, "-i", graph_path, "-o", "/dev/null"] + sig_args
+            cmd = BINARY_PATH + [alg_flag, proposer_flag, "-i", graph_path, "-o", "/dev/null"] + sig_args
         else:
-            cmd = [BINARY_PATH, alg_flag, proposer_flag, "-n", "-i", graph_path, "-o", "/dev/null"] + sig_args
+            cmd = BINARY_PATH + [alg_flag, proposer_flag, "-n", "-i", graph_path, "-o", "/dev/null"] + sig_args
 
         return measure_run(cmd, iterations)
 
@@ -173,8 +175,8 @@ def main():
         print("Error: --lq-max must be non-negative.", file=sys.stderr)
         sys.exit(1)
 
-    if not os.path.exists(BINARY_PATH) or not os.path.exists(GENERATOR_PATH):
-        print(f"Error: Binaries '{BINARY_PATH}' or '{GENERATOR_PATH}' not found.", file=sys.stderr)
+    if not os.path.exists(LIB_PATH) or not os.path.exists(GENERATOR_PATH):
+        print(f"Error: '{LIB_PATH}' or '{GENERATOR_PATH}' not found.", file=sys.stderr)
         print("Please compile the project first using `make`.", file=sys.stderr)
         sys.exit(1)
 

@@ -3,7 +3,7 @@ name = "graph-matching-core"
 version = "0.1.0"
 description = "Header-only C++ stable/popular matching solver with generator, profiler, and tests"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.14"
 dependencies = [
     "pytest>=8.0",
 ]
