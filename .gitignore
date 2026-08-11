@@ -1,0 +1,5 @@
+build/
+.venv/
+__pycache__/
+*.pyc
+benchmark_results.csv
