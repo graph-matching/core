@@ -18,15 +18,18 @@ module can be imported directly from a long-running service (FastAPI, etc.).
   - lower-quota feasibility post-check for all three algorithms;
   - a stability (blocking-pair) check for `-s` and a popularity dual-certificate
     check for `-p`.
-- **External verification** of a claimed matching file (`-e`, requires `-s`).
+- **External verification** of a claimed matching file (`-e`). Stable matching
+  only for now: pair it with `-s`.
 - **Upper quotas** honoured by the solver; **lower quotas** enforced as a
   post-check (a matching that leaves a vertex below its floor is reported as
   infeasible -- no alternate matching is suggested).
 
 ## Build
 
-Requires `g++` with C++17 and `make` (Linux). The Python generator/profiler/tests
-use [uv](https://docs.astral.sh/uv/) (install with `curl -LsSf https://astral.sh/uv/install.sh | sh`).
+Requires `g++` with C++17 and `make` (Linux). The Python CLI/generator/profiler/tests
+need **Python 3.14** and use [uv](https://docs.astral.sh/uv/) (install with
+`curl -LsSf https://astral.sh/uv/install.sh | sh`), which fetches the interpreter
+pinned in `.python-version` for you.
 
 ```
 make
@@ -49,7 +52,7 @@ This produces `build/libgraphmatch.so` (the solver engine) and
   -o, --output FILE        Output matching (stdout if omitted)
   -g, --signature FILE     Write a signature (rank distribution) of the matching
   -n, --no-verify          Do NOT run the verifier (verification is on by default)
-  -e, --verify-claimed FILE  Verify a claimed matching file (requires -s or -p)
+  -e, --verify-claimed FILE  Verify a claimed matching file (requires -s)
   -h, --help               Show the full option matrix
 ```
 
@@ -80,16 +83,27 @@ result.err        # engine stderr (parse / verifier diagnostics)
 verify_matching(graph_text, claimed_text, algorithm="stable")
 ```
 
-`algorithm` is `"stable"`, `"popular"`, or `"max-card"`. Calls are serialised by
+`verify_matching` supports `"stable"` only for now; the popular checker is not
+considered supported, so treat any other algorithm as unavailable.
+
+`algorithm` for `solve` is `"stable"`, `"popular"`, or `"max-card"`. Calls are serialised by
 a lock inside the library, so run them in a threadpool
 (`fastapi.concurrency.run_in_threadpool`) rather than on the event loop.
 
-A runnable service and sample instances live in [`examples/`](examples/README.md):
+Sample instances and a single-file service live in
+[`examples/`](examples/README.md):
 
 ```
 uv run graph_matcher.py -s -i examples/simple.txt   # CLI
 uv run examples/fastapi_app.py                      # HTTP service on :8000
 ```
+
+`examples/fastapi_app.py` is the minimal illustration: two endpoints, no state.
+The full service built on this engine is the sibling `graph-matching-api`
+checkout -- run tokens, SQLite persistence with 72h retention, result push over
+a WebSocket, and a React frontend. It expects to find this repository beside it
+(override with `GRAPH_MATCHING_CORE`) and loads `graph_matcher.py` exactly as
+shown above.
 
 ### Output format
 
@@ -140,8 +154,11 @@ treated as the output file, so `generator A B p q out.txt` keeps working.
 ## Python tooling (uv)
 
 The generator/profiler/tests are driven with [uv](https://docs.astral.sh/uv/).
-uv reads `pyproject.toml`, creates an isolated environment, and installs the
-`pytest` dependency on first use -- no manual `venv`/`pip` steps.
+uv reads `pyproject.toml`, creates an isolated environment on Python 3.14
+(`requires-python = ">=3.14"`, pinned in `.python-version`), and installs the
+`pytest` dependency on first use -- no manual `venv`/`pip` steps. Nothing in the
+solver itself is version-sensitive; the pin just keeps the three checkouts on
+one interpreter.
 
 ## Profiler
 
