@@ -10,6 +10,7 @@
 #include <iostream>
 #include <memory>
 #include <algorithm>
+#include <utility>
 
 struct VertexBookkeeping {
     size_t begin = 0;
@@ -132,68 +133,82 @@ public:
 };
 
 // stable marriage = n proposing matching (bipartite graph, is a proposing, max level = 0)
+// True when (u, v) blocks M: each of them would rather be with the other than
+// keep what it has. An undersubscribed vertex has a free slot and accepts any
+// acceptable partner outright; a full one compares against its worst partner.
+//
+// Shared by the stability checker and the run statistics, so the two can never
+// disagree about what a blocking pair is.
+inline bool is_blocking_pair(const Matching& M, const Vertex* u, const Vertex* v) {
+    int weight = 0;
+
+    // Contribution from v (non-proposing side).
+    if (M.getNumPartners(v) < v->upper_quota) {
+        weight += 1;
+    } else if (M.isMatched(v)) {
+        Partner v_worst = M.getLeastPreferred(v);
+        int u_rank = v->getRank(u);
+        if (v_worst.rank > u_rank) {
+            weight += 1;
+        } else if (u_rank > v_worst.rank) {
+            weight += -1;
+        }
+    }
+
+    // Contribution from u (proposing side).
+    if (M.getNumPartners(u) < u->upper_quota) {
+        weight += 1;
+    } else if (M.isMatched(u)) {
+        Partner u_worst = M.getLeastPreferred(u);
+        int v_rank = u->getRank(v);
+        if (u_worst.rank > v_rank) {
+            weight += 1;
+        } else if (v_rank > u_worst.rank) {
+            weight += -1;
+        }
+    }
+
+    // weight 2 means both sides prefer the swap.
+    return weight == 2 && v->upper_quota > 0 && u->upper_quota > 0 && !M.hasPartner(u, v);
+}
+
+// Each preference edge is visited exactly once, so no V x V weight matrix is
+// needed.
+inline std::vector<std::pair<const Vertex*, const Vertex*>> find_blocking_pairs(
+    const BipartiteGraph* G, const Matching& M, bool A_proposing) {
+    std::vector<std::pair<const Vertex*, const Vertex*>> blocking;
+    const auto& proposing_partition = A_proposing ? G->getPartitionA() : G->getPartitionB();
+    for (const auto& it : proposing_partition) {
+        const Vertex* u = it.get();
+        for (const Vertex* v : u->preferences) {
+            if (is_blocking_pair(M, u, v)) {
+                blocking.emplace_back(u, v);
+            }
+        }
+    }
+    return blocking;
+}
+
 class StableMarriage : public NProposingMatching {
 public:
     StableMarriage() : NProposingMatching(0) {}
 
     bool checker(const BipartiteGraph* G, const Matching& M, bool A_proposing, std::ostream& out) override {
         std::stringstream stmp;
-        const auto& proposing_partition = A_proposing ? G->getPartitionA() : G->getPartitionB();
+        const auto blocking = find_blocking_pairs(G, M, A_proposing);
 
-        // Each preference edge is visited exactly once, so its weight can be
-        // computed and checked in place (no V x V weight matrix needed).
-        int flag = 1;
-        for (const auto& it : proposing_partition) {
-            const Vertex* u = it.get();
-            for (const Vertex* v : u->preferences) {
-                int weight = 0;
-
-                // Contribution from v (non-proposing side).
-                // An undersubscribed vertex has a free slot and accepts any
-                // acceptable partner outright; only a full vertex compares
-                // the candidate against its worst current partner.
-                if (M.getNumPartners(v) < v->upper_quota) {
-                    weight += 1;
-                } else if (M.isMatched(v)) {
-                    Partner v_worst = M.getLeastPreferred(v);
-                    int u_rank = v->getRank(u);
-                    if (v_worst.rank > u_rank) {
-                        weight += 1;
-                    } else if (u_rank > v_worst.rank) {
-                        weight += -1;
-                    }
-                }
-
-                // Contribution from u (proposing side)
-                if (M.getNumPartners(u) < u->upper_quota) {
-                    weight += 1;
-                } else if (M.isMatched(u)) {
-                    Partner u_worst = M.getLeastPreferred(u);
-                    int v_rank = u->getRank(v);
-                    if (u_worst.rank > v_rank) {
-                        weight += 1;
-                    } else if (v_rank > u_worst.rank) {
-                        weight += -1;
-                    }
-                }
-
-                // If u prefers v over M(u) and vice-versa (weight is 2), and they are not already matched, it's a blocking pair
-                if (weight == 2 && v->upper_quota > 0 && u->upper_quota > 0 && !M.hasPartner(u, v)) {
-                    if (flag) {
-                        stmp << "Matching is not stable\n";
-                    }
-                    flag = 0;
-                    stmp << "Edge " << u->id << " -- " << v->id << " is a blocking pair!\n";
-                }
+        if (blocking.empty()) {
+            stmp << "Matching is Stable\n";
+        } else {
+            stmp << "Matching is not stable\n";
+            for (const auto& pair : blocking) {
+                stmp << "Edge " << pair.first->id << " -- " << pair.second->id
+                     << " is a blocking pair!\n";
             }
         }
 
-        if (flag) {
-            stmp << "Matching is Stable\n";
-        }
-
         out << stmp.str();
-        return flag != 0;
+        return blocking.empty();
     }
 };
 

@@ -4,7 +4,7 @@
 The C++ engine is loaded through ctypes, so the same entry points serve both
 this CLI and any in-process caller (e.g. a FastAPI handler):
 
-    from graph_matcher import solve, verify_matching
+    from graph_matcher import solve, verify_matching, diff_matchings, statistics
 
     result = solve(graph_text, algorithm="stable")
     result.status    # 0 on success, 1 on parse/verification failure
@@ -83,6 +83,11 @@ def _load():
     lib.gm_solve.restype = _GmResult
     lib.gm_verify.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int, ctypes.c_int]
     lib.gm_verify.restype = _GmResult
+    lib.gm_diff.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p,
+                            ctypes.c_int, ctypes.c_int]
+    lib.gm_diff.restype = _GmResult
+    lib.gm_stats.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
+    lib.gm_stats.restype = _GmResult
     lib.gm_free.argtypes = [ctypes.POINTER(_GmResult)]
     lib.gm_free.restype = None
     _lib = lib
@@ -139,6 +144,35 @@ def verify_matching(graph_text: str, claimed_text: str, algorithm: str = "stable
     lib = _load()
     raw = lib.gm_verify(graph_text.encode("utf-8"), claimed_text.encode("utf-8"), code,
                         int(a_proposing))
+    return _consume(lib, raw)
+
+
+def diff_matchings(graph_a: str, matching_a: str, graph_b: str, matching_b: str,
+                   algorithm: str = "stable", a_proposing: bool = True) -> Result:
+    """Compares two runs, each its own (graph, matching) pair.
+
+    The two sides may be different instances -- that is the point, since a
+    changed instance can still produce the same matching. The JSON report
+    lands in `Result.matching`; parse and validation errors in `Result.err`.
+    """
+    code = _alg_code(algorithm)
+    lib = _load()
+    raw = lib.gm_diff(graph_a.encode("utf-8"), matching_a.encode("utf-8"),
+                      graph_b.encode("utf-8"), matching_b.encode("utf-8"), code,
+                      int(a_proposing))
+    return _consume(lib, raw)
+
+
+def statistics(graph_text: str, matching_text: str, a_proposing: bool = True) -> Result:
+    """Statistics for one matching over one instance.
+
+    Cardinality, capacity use, egalitarian cost, blocking pairs and per-side
+    figures. The JSON report lands in `Result.matching`. Separate from solve()
+    so a stored run can be measured again without recomputing the matching.
+    """
+    lib = _load()
+    raw = lib.gm_stats(graph_text.encode("utf-8"), matching_text.encode("utf-8"),
+                       int(a_proposing))
     return _consume(lib, raw)
 
 

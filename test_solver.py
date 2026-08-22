@@ -655,3 +655,236 @@ def test_additional_command_flags():
             os.remove(sig_path)
         if os.path.exists(valid_match_path):
             os.remove(valid_match_path)
+
+
+# --- gm_diff ---------------------------------------------------------------
+#
+# Two instances that differ can still produce the same matching, so the diff
+# reports on the instances and the matchings separately. These cover both
+# halves being independent.
+
+import json
+
+from graph_matcher import diff_matchings, solve
+
+THREE_BY_THREE = """@PartitionA
+a1, a2, a3 ;
+@End
+@PartitionB
+b1, b2, b3 ;
+@End
+@PreferenceListsA
+a1 : b1, b2 ;
+a2 : b2, b3 ;
+a3 : b1 ;
+@End
+@PreferenceListsB
+b1 : a1, a3 ;
+b2 : a1, a2 ;
+b3 : a2 ;
+@End
+"""
+
+# Same as above without b3, and with a2's list truncated to match. The stable
+# matching is unchanged because b3 was only ever a2's second choice.
+NO_B3 = """@PartitionA
+a1, a2, a3 ;
+@End
+@PartitionB
+b1, b2 ;
+@End
+@PreferenceListsA
+a1 : b1, b2 ;
+a2 : b2 ;
+a3 : b1 ;
+@End
+@PreferenceListsB
+b1 : a1, a3 ;
+b2 : a1, a2 ;
+@End
+"""
+
+# Preferences reversed, which does change who gets matched to whom.
+REVERSED = """@PartitionA
+a1, a2, a3 ;
+@End
+@PartitionB
+b1, b2, b3 ;
+@End
+@PreferenceListsA
+a1 : b2, b1 ;
+a2 : b3, b2 ;
+a3 : b1 ;
+@End
+@PreferenceListsB
+b1 : a3, a1 ;
+b2 : a2, a1 ;
+b3 : a2 ;
+@End
+"""
+
+
+def _report(graph_a, graph_b, algorithm="stable"):
+    left = solve(graph_a, algorithm=algorithm)
+    right = solve(graph_b, algorithm=algorithm)
+    result = diff_matchings(graph_a, left.matching, graph_b, right.matching,
+                            algorithm=algorithm)
+    assert result.ok, result.err
+    return json.loads(result.matching)
+
+
+def test_diff_same_instance_same_matching():
+    report = _report(THREE_BY_THREE, THREE_BY_THREE)
+    assert report["instance"]["identical"] is True
+    assert report["matchings"]["identical"] is True
+    assert report["matchings"]["only_in_left"] == []
+    assert report["matchings"]["partner_changed"] == []
+
+
+def test_diff_reports_instance_change_when_matching_is_unchanged():
+    report = _report(THREE_BY_THREE, NO_B3)
+
+    # The whole point: the instances differ even though the result does not.
+    assert report["instance"]["identical"] is False
+    assert report["instance"]["b_only_in_left"] == ["b3"]
+    assert report["instance"]["b_size"] == [3, 2]
+    assert [c["vertex"] for c in report["instance"]["preference_changes"]] == ["a2"]
+
+    assert report["matchings"]["identical"] is True
+    assert report["matchings"]["cardinality"] == [2, 2]
+
+
+def test_diff_reports_matching_change():
+    report = _report(THREE_BY_THREE, REVERSED)
+
+    assert report["instance"]["identical"] is False
+    assert report["matchings"]["identical"] is False
+
+    changed = {c["agent"]: (c["left"], c["right"]) for c in report["matchings"]["partner_changed"]}
+    assert changed["a1"] == (["b1"], ["b2"])
+    assert changed["a2"] == (["b2"], ["b3"])
+    # a3 goes from unmatched to matched once b1 prefers it.
+    assert report["matchings"]["newly_matched"] == ["a3"]
+
+
+def test_diff_checks_each_side_against_its_own_instance():
+    report = _report(THREE_BY_THREE, NO_B3)
+    assert report["left"]["passes_check"] is True
+    assert report["right"]["passes_check"] is True
+    assert report["left"]["feasible"] is True
+    assert "|B| = 3" in report["left"]["signature"]
+    assert "|B| = 2" in report["right"]["signature"]
+
+
+def test_diff_rejects_a_matching_that_does_not_fit_its_instance():
+    # b3 does not exist in NO_B3, so this claim cannot be read against it.
+    result = diff_matchings(NO_B3, "a2,b3,2\n", NO_B3, "")
+    assert not result.ok
+    assert "unknown vertex" in result.err or "not valid" in result.err
+
+
+def test_diff_rejects_an_unparsable_instance():
+    result = diff_matchings("not a graph", "", THREE_BY_THREE, "")
+    assert not result.ok
+    assert result.parsed == 0
+
+
+# --- gm_stats --------------------------------------------------------------
+
+from graph_matcher import statistics
+
+# a1 and a3 both want b1; a3 loses it and ends up unmatched, so this instance
+# exercises unmatched agents and a vacant position at once.
+WITH_LEFTOVERS = THREE_BY_THREE
+
+# Two posts with room for two each: capacity is 4 while only 3 agents exist.
+WITH_QUOTAS = """@PartitionA
+a1, a2, a3 ;
+@End
+@PartitionB
+b1 (2), b2 (2) ;
+@End
+@PreferenceListsA
+a1 : b1, b2 ;
+a2 : b1, b2 ;
+a3 : b1 ;
+@End
+@PreferenceListsB
+b1 : a1, a2, a3 ;
+b2 : a1, a2 ;
+@End
+"""
+
+
+def _stats(graph, algorithm="stable"):
+    computed = solve(graph, algorithm=algorithm)
+    result = statistics(graph, computed.matching)
+    assert result.ok, result.err
+    return json.loads(result.matching)
+
+
+def test_stats_counts_both_sides():
+    stats = _stats(WITH_LEFTOVERS)
+
+    assert stats["cardinality"] == 2
+    assert stats["a"] == {
+        "vertices": 3,
+        "capacity": 3,
+        "matched": 2,
+        "unmatched": 1,
+        "avg_rank": 1.0,
+    }
+    assert stats["b"]["positions"] == 3
+    assert stats["b"]["filled"] == 2
+    assert stats["b"]["vacant"] == 1
+    assert stats["capacity"] == {"used": 2, "total": 3, "ratio": 0.667}
+
+
+def test_stats_egalitarian_cost_sums_both_sides_ranks():
+    # a1-b1 costs 1+1; a2-b2 costs 1+2, because b2 ranks a2 second.
+    assert _stats(WITH_LEFTOVERS)["egalitarian_cost"] == 5
+
+
+def test_stats_reports_no_blocking_pairs_for_a_stable_matching():
+    assert _stats(WITH_LEFTOVERS)["blocking_pairs"] == 0
+
+
+def test_stats_counts_blocking_pairs_of_a_bad_matching():
+    # Hand both agents their second choice; each would rather swap.
+    claimed = "a1,b2,2\na2,b3,2\n"
+    result = statistics(THREE_BY_THREE, claimed)
+    assert result.ok, result.err
+    stats = json.loads(result.matching)
+    assert stats["blocking_pairs"] > 0
+    assert stats["egalitarian_cost"] > 4
+
+
+def test_stats_handles_upper_quotas():
+    stats = _stats(WITH_QUOTAS)
+    assert stats["b"]["positions"] == 4
+    assert stats["b"]["vacant"] == 4 - stats["cardinality"]
+    assert stats["capacity"]["total"] == 4
+
+
+def test_stats_on_an_empty_matching_reports_null_averages():
+    result = statistics(THREE_BY_THREE, "")
+    assert result.ok, result.err
+    stats = json.loads(result.matching)
+    assert stats["cardinality"] == 0
+    assert stats["a"]["matched"] == 0
+    assert stats["a"]["unmatched"] == 3
+    # No pairs means no average to report, not an average of zero.
+    assert stats["a"]["avg_rank"] is None
+    assert stats["b"]["avg_rank"] is None
+
+
+def test_stats_rejects_a_matching_that_does_not_fit_the_instance():
+    result = statistics(THREE_BY_THREE, "a1,b9,1\n")
+    assert not result.ok
+
+
+def test_diff_carries_stats_for_each_side():
+    report = _report(THREE_BY_THREE, NO_B3)
+    assert report["left"]["stats"]["b"]["positions"] == 3
+    assert report["right"]["stats"]["b"]["positions"] == 2
+    assert report["left"]["stats"]["blocking_pairs"] == 0
